@@ -80,19 +80,41 @@ class ImageSegmenter:
         return regions
 
     @staticmethod
-    def _create_transparent_mask(result: np.ndarray, original_image: Image.Image, bbox: Optional[List[int]] = None) -> Image.Image:
-        """Create a transparent image containing the segmented object."""
+    def _create_transparent_mask(result: np.ndarray, original_image: Image.Image, bbox: Optional[List[int]] = None) -> Optional[Image.Image]:
+        """Create a transparent image containing the segmented object. Returns None if the result would be essentially empty."""
         image_array = np.array(original_image)
         mask = result > 0.5 if result.ndim == 2 else np.max(result, axis=0) > 0.5
 
-        # Use connected component analysis for the largest island
+        # Use connected component analysis but preserve significant components
         mask_uint8 = np.uint8(mask)
-        mask_contiguous = np.ascontiguousarray(mask_uint8)  # Ensure contiguous array
+        mask_contiguous = np.ascontiguousarray(mask_uint8)
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_contiguous, connectivity=8, ltype=cv2.CV_32S)
+        
         if num_labels > 1:
-            areas = stats[1:, cv2.CC_STAT_AREA]
-            largest_label = np.argmax(areas) + 1
-            mask = (labels == largest_label)
+            # Calculate total mask area (excluding background)
+            total_area = np.sum(stats[1:, cv2.CC_STAT_AREA])
+            
+            # Find components that are at least 5% of the total area or 1000 pixels
+            significant_areas = stats[1:, cv2.CC_STAT_AREA]
+            area_threshold = max(int(0.05 * total_area), 1000)
+            significant_labels = np.where(significant_areas >= area_threshold)[0] + 1
+            
+            if len(significant_labels) > 0:
+                # Create a new mask with all significant components
+                new_mask = np.isin(labels, significant_labels)
+                mask = new_mask
+            # If no significant components found, keep the largest one if it's big enough
+            else:
+                largest_area = np.max(stats[1:, cv2.CC_STAT_AREA])
+                if largest_area < 500:  # Minimum size threshold
+                    return None
+                largest_label = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1
+                mask = (labels == largest_label)
+
+        # Check if mask is too sparse
+        non_zero_ratio = np.count_nonzero(mask) / mask.size
+        if non_zero_ratio < 0.01:  # Less than 1% of the area is non-zero
+            return None
 
         alpha = np.where(mask, 255, 0).astype(np.uint8)
         rgba = np.zeros((*image_array.shape[:2], 4), dtype=np.uint8)
@@ -110,10 +132,20 @@ class ImageSegmenter:
             rows, cols = np.any(alpha, axis=1), np.any(alpha, axis=0)
             ymin, ymax = np.where(rows)[0][[0, -1]]
             xmin, xmax = np.where(cols)[0][[0, -1]]
-            padding = 2
+            padding = 5  # Increased padding
             ymin, ymax = max(0, ymin - padding), min(alpha.shape[0], ymax + padding)
             xmin, xmax = max(0, xmin - padding), min(alpha.shape[1], xmax + padding)
+            
+            # Check if the cropped area would be too small
+            if (ymax - ymin) < 20 or (xmax - xmin) < 20:  # Minimum dimension threshold
+                return None
+                
             image = image.crop((xmin, ymin, xmax, ymax))
+
+        # Final size check on the cropped image
+        w, h = image.size
+        if w < 20 or h < 20 or w * h < 400:  # Minimum area of 400 pixels
+            return None
 
         return image
 
@@ -121,6 +153,8 @@ class ImageSegmenter:
         """Process a single mask and return base64 encoded PNG."""
         try:
             transparent_image = self._create_transparent_mask(mask, image, bbox)
+            if transparent_image is None:
+                return ""
             buffer = BytesIO()
             transparent_image.save(buffer, format="PNG")
             return base64.b64encode(buffer.getvalue()).decode()

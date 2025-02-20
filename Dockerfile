@@ -1,56 +1,39 @@
-FROM --platform=linux/amd64 runpod/base:0.6.3-cuda11.8.0
+FROM --platform=linux/amd64 nvidia/cuda:12.1.0-base-ubuntu22.04
 
-# Install Python 3.11
+# Configure apt and install packages
 RUN apt-get update && \
-    apt-get install -y python3.11-full python3.11-dev && \
-    # Install pip using get-pip.py
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
-    # Clean up
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+    software-properties-common \
+    curl \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Define build arguments
-ARG CUDA_VISIBLE_DEVICES
-ARG MAX_CONCURRENCY
-ARG GPU_MEMORY_UTILIZATION
-ARG TRUST_REMOTE_CODE
-ARG DEFAULT_BATCH_SIZE
-ARG DEFAULT_MIN_BATCH_SIZE
-ARG DEFAULT_BATCH_SIZE_GROWTH_FACTOR
-ARG DISABLE_LOG_STATS
-ARG DISABLE_LOG_REQUESTS
-ARG RAW_OPENAI_OUTPUT
-ARG TOKENIZER_MODE
-ARG BLOCK_SIZE
-ARG SWAP_SPACE
-ARG ENFORCE_EAGER
-ARG MAX_SEQ_LEN_TO_CAPTURE
-ARG DISABLE_CUSTOM_ALL_REDUCE
+RUN ldconfig /usr/local/cuda-12.1/compat/
 
-# Set environment variables
-ENV CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}
-ENV MAX_CONCURRENCY=${MAX_CONCURRENCY}
-ENV GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION}
-ENV TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE}
-ENV DEFAULT_BATCH_SIZE=${DEFAULT_BATCH_SIZE}
-ENV DEFAULT_MIN_BATCH_SIZE=${DEFAULT_MIN_BATCH_SIZE}
-ENV DEFAULT_BATCH_SIZE_GROWTH_FACTOR=${DEFAULT_BATCH_SIZE_GROWTH_FACTOR}
-ENV DISABLE_LOG_STATS=${DISABLE_LOG_STATS}
-ENV DISABLE_LOG_REQUESTS=${DISABLE_LOG_REQUESTS}
-ENV RAW_OPENAI_OUTPUT=${RAW_OPENAI_OUTPUT}
-ENV TOKENIZER_MODE=${TOKENIZER_MODE}
-ENV BLOCK_SIZE=${BLOCK_SIZE}
-ENV SWAP_SPACE=${SWAP_SPACE}
-ENV ENFORCE_EAGER=${ENFORCE_EAGER}
-ENV MAX_SEQ_LEN_TO_CAPTURE=${MAX_SEQ_LEN_TO_CAPTURE}
-ENV DISABLE_CUSTOM_ALL_REDUCE=${DISABLE_CUSTOM_ALL_REDUCE}
+# Set up environment variables for HuggingFace cache
+ENV BASE_PATH="/runpod-volume" \
+    HF_DATASETS_CACHE="/runpod-volume/huggingface-cache/datasets" \
+    HUGGINGFACE_HUB_CACHE="/runpod-volume/huggingface-cache/hub" \
+    HF_HOME="/runpod-volume/huggingface-cache/hub" \
+    HF_HUB_ENABLE_HF_TRANSFER=0
 
+# Install Python dependencies with caching
 COPY requirements.txt /requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3.11 -m pip install --upgrade pip && \
+    python3.11 -m pip install --upgrade -r /requirements.txt --no-cache-dir
 
-RUN python3.11 -m pip install --upgrade pip && \
-    python3.11 -m pip install --upgrade -r requirements.txt --no-cache-dir && \
-    rm /requirements.txt
+# Copy handler code
+COPY rp_handler.py /rp_handler.py
 
-COPY rp_handler.py .
+# Set the working directory
+WORKDIR /
 
-CMD [ "python3.11", "-u", "rp_handler.py" ]
+# Start the handler
+CMD ["python3.11", "-u", "/rp_handler.py"]

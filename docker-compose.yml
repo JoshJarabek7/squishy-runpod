@@ -1,6 +1,6 @@
 services:
   runpod:
-    image: yourusername/runpod-worker:latest
+    image: Squister777/squishy-runpod:0.1.0
     build:
       context: .
       dockerfile: Dockerfile

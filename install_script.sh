@@ -11,6 +11,7 @@ apt-get update && apt-get install -y \
     curl \
     git \
     software-properties-common \
+    ca-certificates
 
 # Add deadsnakes PPA if not already added
 if ! grep -q "^deb.*deadsnakes" /etc/apt/sources.list /etc/apt/sources.list.d/*; then

@@ -1,0 +1,93 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ github.repository }}
+  # Application configuration
+  CUDA_VISIBLE_DEVICES: all
+  MAX_CONCURRENCY: 300
+  GPU_MEMORY_UTILIZATION: 0.95
+  TRUST_REMOTE_CODE: 1
+  DEFAULT_BATCH_SIZE: 50
+  DEFAULT_MIN_BATCH_SIZE: 1
+  DEFAULT_BATCH_SIZE_GROWTH_FACTOR: 3
+  DISABLE_LOG_STATS: 0
+  DISABLE_LOG_REQUESTS: 0
+  RAW_OPENAI_OUTPUT: 1
+  TOKENIZER_MODE: auto
+  BLOCK_SIZE: 16
+  SWAP_SPACE: 4
+  ENFORCE_EAGER: 0
+  MAX_SEQ_LEN_TO_CAPTURE: 8192
+  DISABLE_CUSTOM_ALL_REDUCE: 0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            CUDA_VISIBLE_DEVICES=${{ env.CUDA_VISIBLE_DEVICES }}
+            MAX_CONCURRENCY=${{ env.MAX_CONCURRENCY }}
+            GPU_MEMORY_UTILIZATION=${{ env.GPU_MEMORY_UTILIZATION }}
+            TRUST_REMOTE_CODE=${{ env.TRUST_REMOTE_CODE }}
+            DEFAULT_BATCH_SIZE=${{ env.DEFAULT_BATCH_SIZE }}
+            DEFAULT_MIN_BATCH_SIZE=${{ env.DEFAULT_MIN_BATCH_SIZE }}
+            DEFAULT_BATCH_SIZE_GROWTH_FACTOR=${{ env.DEFAULT_BATCH_SIZE_GROWTH_FACTOR }}
+            DISABLE_LOG_STATS=${{ env.DISABLE_LOG_STATS }}
+            DISABLE_LOG_REQUESTS=${{ env.DISABLE_LOG_REQUESTS }}
+            RAW_OPENAI_OUTPUT=${{ env.RAW_OPENAI_OUTPUT }}
+            TOKENIZER_MODE=${{ env.TOKENIZER_MODE }}
+            BLOCK_SIZE=${{ env.BLOCK_SIZE }}
+            SWAP_SPACE=${{ env.SWAP_SPACE }}
+            ENFORCE_EAGER=${{ env.ENFORCE_EAGER }}
+            MAX_SEQ_LEN_TO_CAPTURE=${{ env.MAX_SEQ_LEN_TO_CAPTURE }}
+            DISABLE_CUSTOM_ALL_REDUCE=${{ env.DISABLE_CUSTOM_ALL_REDUCE }}

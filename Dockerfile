@@ -1,22 +1,13 @@
 FROM --platform=linux/amd64 runpod/base:0.6.3-cuda11.8.0
 
-# Install Python 3.13 with force-overwrite
+# Install Python 3.11
 RUN apt-get update && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository -y ppa:deadsnakes/ppa && \
-    apt-get update && \
-    # Download the packages first
-    apt-get download python3.13-minimal python3.13 libpython3.13-minimal libpython3.13-stdlib python3.13-dev python3.13-venv python3.13-distutils && \
-    # Force install them with dpkg
-    find . -name "*.deb" -exec dpkg --force-overwrite -i {} \; && \
-    # Fix any remaining dependencies
-    apt-get install -y -f && \
+    apt-get install -y python3.11-full python3.11-dev && \
     # Install pip using get-pip.py
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
     # Clean up
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    rm -f *.deb
+    rm -rf /var/lib/apt/lists/*
 
 # Define build arguments
 ARG CUDA_VISIBLE_DEVICES
@@ -56,10 +47,10 @@ ENV DISABLE_CUSTOM_ALL_REDUCE=${DISABLE_CUSTOM_ALL_REDUCE}
 
 COPY requirements.txt /requirements.txt
 
-RUN python3.13 -m pip install --upgrade pip && \
-    python3.13 -m pip install --upgrade -r requirements.txt --no-cache-dir && \
+RUN python3.11 -m pip install --upgrade pip && \
+    python3.11 -m pip install --upgrade -r requirements.txt --no-cache-dir && \
     rm /requirements.txt
 
 COPY rp_handler.py .
 
-CMD [ "python3.13", "-u", "rp_handler.py" ]
+CMD [ "python3.11", "-u", "rp_handler.py" ]

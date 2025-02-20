@@ -1,4 +1,4 @@
-FROM --platform=arm64 runpod/base:0.6.3-cuda11.8.0
+FROM --platform=linux/amd64 runpod/base:0.6.3-cuda11.8.0
 
 # Define build arguments
 ARG CUDA_VISIBLE_DEVICES

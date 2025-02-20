@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: Squidster777/squishy-runpod
+  IMAGE_NAME: squidster777/squishy-runpod
   # Application configuration
   CUDA_VISIBLE_DEVICES: all
   MAX_CONCURRENCY: 300

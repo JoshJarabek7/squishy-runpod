@@ -1,5 +1,13 @@
 FROM --platform=linux/amd64 runpod/base:0.6.3-cuda11.8.0
 
+# Install Python 3.13
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python3.13 python3.13-dev python3.13-venv python3.13-distutils && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
+
 # Define build arguments
 ARG CUDA_VISIBLE_DEVICES
 ARG MAX_CONCURRENCY

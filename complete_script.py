@@ -38,12 +38,8 @@ def main():
     image_configs = {
         "multi_focus.jpg": {"semantic": ["book"], "output_prefix": "multi_focus"},
         "single_focus.jpg": {
-            "semantic": ["man", "hair", "sunglasses"],
+            "semantic": ["hair", "sunglasses"],
             "output_prefix": "single_focus",
-        },
-        "single_focus_cropped.png": {
-            "semantic": ["man", "hair", "sunglasses"],
-            "output_prefix": "single_focus_cropped",
         },
     }
 

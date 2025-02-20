@@ -1,12 +1,23 @@
 FROM --platform=linux/amd64 runpod/base:0.6.3-cuda11.8.0
 
-# Install Python 3.13
+# Install Python 3.13 with proper conflict resolution
 RUN apt-get update && \
     apt-get install -y software-properties-common && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
+    # First remove any existing Python 3.13 packages that might conflict
+    apt-get remove -y python3.13-minimal python3.13 libpython3.13-minimal libpython3.13-stdlib && \
+    apt-get autoremove -y && \
+    # Force clean any broken dependencies
+    apt-get install -y --fix-broken && \
+    # Install Python 3.13 packages in the correct order
+    apt-get install -y python3.13-minimal && \
     apt-get install -y python3.13 python3.13-dev python3.13-venv python3.13-distutils && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
+    # Install pip using get-pip.py
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13 && \
+    # Clean up
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Define build arguments
 ARG CUDA_VISIBLE_DEVICES

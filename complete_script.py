@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from PIL import Image
 from rp_handler import segment_image
+import base64
+from io import BytesIO
 
 
 def ensure_dir(directory: str) -> None:
@@ -9,14 +11,21 @@ def ensure_dir(directory: str) -> None:
     Path(directory).mkdir(parents=True, exist_ok=True)
 
 
+def image_to_base64(image: Image.Image) -> str:
+    """Convert PIL Image to base64 string."""
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
+
 def save_segmented_images(
     base64_strings: list[str], output_dir: str, prefix: str
 ) -> None:
     """Save base64 encoded images to files."""
-    import base64
-    from io import BytesIO
-
     for idx, b64_string in enumerate(base64_strings):
+        if not b64_string:  # Skip empty strings
+            continue
+
         # Decode base64 string
         image_data = base64.b64decode(b64_string)
         image = Image.open(BytesIO(image_data))
@@ -65,10 +74,11 @@ def main():
 
         try:
             image = Image.open(input_path).convert("RGB")
+            image_base64 = image_to_base64(image)
 
             # 1. Automatic segmentation
             print("Running automatic segmentation...")
-            auto_results = segment_image(image, automatic=True)
+            auto_results = segment_image(image_base64, automatic=True)
             if auto_results:
                 save_segmented_images(
                     auto_results, output_dir, f"{config['output_prefix']}_auto"
@@ -79,7 +89,7 @@ def main():
             # 2. Semantic segmentation for each keyword
             for keyword in config["semantic"]:
                 print(f"Running semantic segmentation for '{keyword}'...")
-                semantic_results = segment_image(image, text_prompt=keyword)
+                semantic_results = segment_image(image_base64, text_prompt=keyword)
                 if semantic_results:
                     save_segmented_images(
                         semantic_results,

@@ -8,22 +8,20 @@ from io import BytesIO
 import numpy as np
 import torch
 from PIL import Image
-from ultralytics import SAM, YOLOWorld
+from ultralytics import SAM
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
+import cv2
 
 # Constants
-CLIP_MODEL = "openai/clip-vit-large-patch14"
 
 # Configure device and models based on hardware
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda")
-    YOLO_MODEL = "yolov8x-worldv2.pt"
     SAM_MODEL = "sam2.1_l.pt"
 else:
     DEVICE = torch.device("cpu")
-    YOLO_MODEL = "yolov8s-worldv2.pt"
     SAM_MODEL = "sam2.1_t.pt"
-print(DEVICE, YOLO_MODEL, SAM_MODEL)
+print(DEVICE, SAM_MODEL)
 class SegmentationMode(Enum):
     """Enum defining the available segmentation modes."""
     SEMANTIC = auto()
@@ -65,21 +63,14 @@ class ImageSegmenter:
     def __init__(self):
         print("Initializing models...")
         self.sam_model = SAM(SAM_MODEL)
-        self.yolo_model: Optional[YOLOWorld] = None
-        
         # Move models to device
         self.sam_model = self.sam_model.to(DEVICE)
-
-    def _init_yolo(self, text_prompt: str) -> None:
-        """Initialize YOLO model with text prompt."""
-        self.yolo_model = YOLOWorld(YOLO_MODEL)
-        self.yolo_model.to(DEVICE)
-        self.yolo_model.set_classes([text_prompt])
 
     def _get_semantic_regions(self, image: Image.Image, text_prompt: str) -> List[List[float]]:
         """Get regions from semantic segmentation using OWLv2 (google/owlv2-large-patch14)."""
         # Initialize processor and model
-        processor = Owlv2Processor.from_pretrained("google/owlv2-large-patch14")
+        processor_result = Owlv2Processor.from_pretrained("google/owlv2-large-patch14")
+        processor = processor_result[0] if isinstance(processor_result, tuple) else processor_result
         model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-large-patch14")
 
         # Prepare the text query; using a single query for the provided text_prompt
@@ -91,10 +82,10 @@ class ImageSegmenter:
             outputs = model(**inputs)
 
         # Set target size as (height, width) for post-processing
-        target_sizes = torch.tensor([image.size[::-1]])  # image.size is (width, height)
+        target_sizes = [image.size[::-1]]  # image.size is (width, height)
 
         # Post-process to get detection results
-        results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
+        results = processor.post_process_grounded_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.5)
 
         regions = []
         if results and len(results) > 0:
@@ -127,6 +118,19 @@ class ImageSegmenter:
             # Combine along the first axis
             result = np.max(result, axis=0)
         mask = result > 0.5
+        
+        # Use connected component analysis to select the largest connected island
+        mask_uint8 = np.uint8(mask)
+        # Convert the numpy array to UMat using a contiguous array
+        mask_umat = cv2.UMat(np.ascontiguousarray(mask_uint8))
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_umat, connectivity=8, ltype=cv2.CV_32S)
+        # Convert labels and stats back to numpy arrays
+        labels = labels.get()
+        stats = stats.get()
+        if num_labels > 1:
+            areas = stats[1:, cv2.CC_STAT_AREA]
+            largest_label = np.argmax(areas) + 1
+            mask = (labels == largest_label)
         
         # Create alpha channel (255 where mask is True, 0 where False)
         alpha = np.where(mask, 255, 0).astype(np.uint8)
@@ -169,7 +173,7 @@ class ImageSegmenter:
     def segment_image(self, input_data: SegmentationInput) -> List[str]:
         """
         Segment image based on input parameters and return base64 encoded PNGs.
-        For semantic segmentation mode, YOLOWorld is used to generate bounding boxes for the given keyword, and each cropped region is sent to SAM for segmentation.
+        For semantic segmentation mode, OWLv2 is used for zero-shot object detection to generate bounding boxes for the given keyword, and each cropped region is sent to SAM for segmentation.
 
         Args:
             input_data: Validated SegmentationInput object
@@ -183,7 +187,7 @@ class ImageSegmenter:
         segmented_images = []
 
         if input_data.mode == SegmentationMode.SEMANTIC and input_data.text_prompt:
-            # Use YOLOWorld solely to get bounding boxes
+            # Use OWLv2 for zero-shot object detection to get bounding boxes
             regions = self._get_semantic_regions(input_data.image, input_data.text_prompt)
 
             if regions:

@@ -36,7 +36,7 @@ def main():
             "output_prefix": "multi_focus"
         },
         "single_focus.jpg": {
-            "semantic": ["head", "hair", "glasses"],
+            "semantic": ["head", "hair", "sunglasses", "face"],
             "output_prefix": "single_focus"
         }
     }

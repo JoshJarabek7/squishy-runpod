@@ -20,11 +20,14 @@ RUN apt-get update && \
 
 RUN ldconfig /usr/local/cuda-12.1/compat/
 
-# Set up environment variables for HuggingFace cache
-ENV BASE_PATH="/runpod-volume" \
-    HF_DATASETS_CACHE="/runpod-volume/huggingface-cache/datasets" \
-    HUGGINGFACE_HUB_CACHE="/runpod-volume/huggingface-cache/hub" \
-    HF_HOME="/runpod-volume/huggingface-cache/hub" \
+# Create local directory for HuggingFace cache
+RUN mkdir -p /root/.cache/huggingface
+
+# Set up environment variables for HuggingFace cache using local directory
+ENV BASE_PATH="/root/.cache" \
+    HF_DATASETS_CACHE="/root/.cache/huggingface/datasets" \
+    HUGGINGFACE_HUB_CACHE="/root/.cache/huggingface/hub" \
+    HF_HOME="/root/.cache/huggingface/hub" \
     HF_HUB_ENABLE_HF_TRANSFER=0
 
 # Install Python dependencies with caching

@@ -40,7 +40,7 @@ COPY requirements.txt /requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3.13 -m pip install --upgrade pip && \
     python3.13 -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
-    python3.13 -m pip install --no-cache-dir 'huggingface_hub[cli]'
+    python3.13 -m pip install --no-cache-dir 'huggingface_hub[cli]' hf_transfer
 
 # Copy handler code and download script
 COPY rp_handler.py /rp_handler.py

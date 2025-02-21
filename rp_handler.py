@@ -19,43 +19,93 @@ from transformers.models.owlv2 import Owlv2Processor as Owlv2ProcessorType
 import cv2
 from pydantic import BaseModel, Field, field_validator
 from typing import cast
+import os
 
 # Set device to CUDA explicitly
 DEVICE = torch.device("cuda")
 SAM_MODEL_PATH = "/models/sam/sam2.1_l.pt"
 HF_MODEL_NAME = "google/owlv2-large-patch14"
+LOCAL_MODEL_PATH = "/models/huggingface/owlv2-large-patch14"
 print(f"Device: {DEVICE}, SAM Model Path: {SAM_MODEL_PATH}, HF Model: {HF_MODEL_NAME}")
 
 # Global model instantiation to avoid reinitializing on each call
-print("Loading SAM model from local file...")
+print(f"Loading SAM model from {SAM_MODEL_PATH}...")
+if not os.path.exists(SAM_MODEL_PATH):
+    raise RuntimeError(f"SAM model not found at {SAM_MODEL_PATH}")
 global_sam_model = SAM(SAM_MODEL_PATH)
 if torch.cuda.is_available():
     global_sam_model = global_sam_model.cuda()
-print("Loading OWLv2 models from local cache...")
+    print("SAM model moved to CUDA")
+print(f"SAM model loaded successfully, size: {os.path.getsize(SAM_MODEL_PATH) / (1024*1024):.2f} MB")
+
+print(f"Loading OWLv2 models from {LOCAL_MODEL_PATH}...")
+if not os.path.exists(LOCAL_MODEL_PATH):
+    raise RuntimeError(f"OWLv2 model directory not found at {LOCAL_MODEL_PATH}")
 
 # Initialize OWLv2 processor and model
-processor_result = Owlv2Processor.from_pretrained(HF_MODEL_NAME, local_files_only=True)
-global_processor: Owlv2ProcessorType
-global_image_processor: Owlv2ImageProcessor | None
+try:
+    # Load directly from local directory with local_files_only=True
+    processor_result = Owlv2Processor.from_pretrained(
+        LOCAL_MODEL_PATH,
+        local_files_only=True,
+        trust_remote_code=True,
+    )
+    global_processor: Owlv2ProcessorType
+    global_image_processor: Owlv2ImageProcessor | None
 
-if isinstance(processor_result, tuple) and len(processor_result) == 2:
-    processor, image_processor = processor_result
-    if isinstance(image_processor, Owlv2ImageProcessor):
-        global_processor = cast(Owlv2ProcessorType, processor)
-        global_image_processor = image_processor
+    if isinstance(processor_result, tuple) and len(processor_result) == 2:
+        processor, image_processor = processor_result
+        if isinstance(image_processor, Owlv2ImageProcessor):
+            global_processor = cast(Owlv2ProcessorType, processor)
+            global_image_processor = image_processor
+        else:
+            global_processor = cast(Owlv2ProcessorType, processor_result)
+            global_image_processor = None
     else:
         global_processor = cast(Owlv2ProcessorType, processor_result)
         global_image_processor = None
-else:
-    global_processor = cast(Owlv2ProcessorType, processor_result)
-    global_image_processor = None
 
-global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
-    HF_MODEL_NAME,
-    local_files_only=True,
-    device_map="cuda" if torch.cuda.is_available() else "cpu",
-)
-print("All models loaded successfully!")
+    global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
+        LOCAL_MODEL_PATH,
+        local_files_only=True,
+        trust_remote_code=True,
+        device_map="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    print("All models loaded successfully from local directory!")
+except Exception as e:
+    print(f"Error loading models from local directory: {str(e)}")
+    print("Attempting to load from HuggingFace cache...")
+    try:
+        # Try loading from cache with offline mode
+        processor_result = Owlv2Processor.from_pretrained(
+            HF_MODEL_NAME,
+            cache_dir="/models/huggingface",
+            local_files_only=True,
+            trust_remote_code=True,
+        )
+        if isinstance(processor_result, tuple) and len(processor_result) == 2:
+            processor, image_processor = processor_result
+            if isinstance(image_processor, Owlv2ImageProcessor):
+                global_processor = cast(Owlv2ProcessorType, processor)
+                global_image_processor = image_processor
+            else:
+                global_processor = cast(Owlv2ProcessorType, processor_result)
+                global_image_processor = None
+        else:
+            global_processor = cast(Owlv2ProcessorType, processor_result)
+            global_image_processor = None
+
+        global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
+            HF_MODEL_NAME,
+            cache_dir="/models/huggingface",
+            local_files_only=True,
+            trust_remote_code=True,
+            device_map="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        print("Models loaded successfully from cache!")
+    except Exception as e:
+        print(f"Fatal error loading models: {str(e)}")
+        raise
 
 
 class SegmentationMode(str, Enum):
@@ -388,6 +438,21 @@ def segment_image(
 
 
 # Initialize segmenter once for all requests
+def verify_model_paths():
+    """Verify that all required model files exist before starting the handler."""
+    # Check SAM model
+    if not os.path.exists(SAM_MODEL_PATH):
+        raise RuntimeError(f"SAM model not found at {SAM_MODEL_PATH}")
+    
+    # Check OWLv2 model files
+    required_files = ["config.json", "preprocessor_config.json", "pytorch_model.bin"]
+    for file in required_files:
+        path = os.path.join(LOCAL_MODEL_PATH, file)
+        if not os.path.exists(path):
+            raise RuntimeError(f"Required OWLv2 model file not found: {path}")
+
+# Verify model paths before initializing
+verify_model_paths()
 segmenter = ImageSegmenter()
 
 

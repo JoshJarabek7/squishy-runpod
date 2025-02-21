@@ -20,32 +20,37 @@ RUN apt-get update && \
 
 RUN ldconfig /usr/local/cuda-12.6/compat/
 
-# Create persistent directories for model storage
-RUN mkdir -p /models/sam /models/huggingface /root/.cache/huggingface
+# Create persistent directories for model storage and caching
+RUN mkdir -p /models/sam /models/huggingface /root/.cache/huggingface /root/.cache/ultralytics
 
-# Set up environment variables for HuggingFace cache locations
-ENV BASE_PATH="/root/.cache" \
+# Set up environment variables for model caching and offline mode
+ENV HF_HOME="/models/huggingface" \
+    TRANSFORMERS_CACHE="/models/huggingface" \
+    HF_HUB_CACHE="/models/huggingface" \
     HF_DATASETS_CACHE="/models/huggingface/datasets" \
-    HF_HOME="/models/huggingface" \
-    HF_HUB_ENABLE_HF_TRANSFER=0
+    ULTRALYTICS_CONFIG="/models/ultralytics" \
+    ULTRALYTICS_ASSETS="/models/ultralytics/assets" \
+    ULTRALYTICS_CACHE_DIR="/models/ultralytics/cache" \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    HF_HUB_DOWNLOAD_RETRY_COUNT=5 \
+    PYTHONUNBUFFERED=1
 
 # Install Python dependencies with caching
 COPY requirements.txt /requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3.13 -m pip install --upgrade pip && \
-    python3.13 -m pip install --upgrade -r /requirements.txt --no-cache-dir
+    python3.13 -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
+    python3.13 -m pip install --no-cache-dir 'huggingface_hub[cli]'
 
-# Copy handler code
+# Copy handler code and download script
 COPY rp_handler.py /rp_handler.py
+COPY download_models.py /download_models.py
 
-# Download SAM model and move it to /models/sam
-RUN python3.13 -c "from ultralytics import SAM; model = SAM('sam2.1_l.pt'); print(f'Model downloaded to: {model.ckpt_path}')" && \
-    find / -name "sam2.1_l.pt" -exec mv {} /models/sam/sam2.1_l.pt \; || echo "SAM model not found, assuming it's already in place"
-
-# Download OWLv2 model files using transformers directly
-RUN python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; \
-    Owlv2Processor.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface'); \
-    Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface')"
+# Make the download script executable and run it with retries
+RUN chmod +x /download_models.py && \
+    (python3.13 /download_models.py || \
+     (sleep 5 && python3.13 /download_models.py) || \
+     (sleep 10 && python3.13 /download_models.py))
 
 # Set the working directory
 WORKDIR /

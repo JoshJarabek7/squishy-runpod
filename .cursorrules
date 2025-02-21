@@ -1,0 +1,5 @@
+We're using Owlv2 for object detection and SAM for segmentation.
+The object detection (when using semantic mode) is done using the OWLv2 model and should pass the cropped region to the segmentation model before the segmentation model runs inference on the cropped region.
+We're using Python 3.13, so make sure to use the correct syntax for this version (list instead of List, x | y instead of Union[x, y], x | None instead of Optional, dict instead of Dict, etc.)
+This is running on RunPod serverless.
+We want to ensure the models are downloaded and cached correctly at container/image build time so that they can be loaded quickly at runtime from disk.

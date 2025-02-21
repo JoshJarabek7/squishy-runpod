@@ -10,9 +10,15 @@ import base64
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from ultralytics import SAM
-from transformers import Owlv2Processor, Owlv2ForObjectDetection
+from transformers import (
+    Owlv2Processor,
+    Owlv2ForObjectDetection,
+    Owlv2ImageProcessor,
+)
+from transformers.models.owlv2 import Owlv2Processor as Owlv2ProcessorType
 import cv2
 from pydantic import BaseModel, Field, field_validator
+from typing import cast
 
 # Set device to CUDA explicitly
 DEVICE = torch.device("cuda")
@@ -22,12 +28,33 @@ print(f"Device: {DEVICE}, SAM Model Path: {SAM_MODEL_PATH}, HF Model: {HF_MODEL_
 
 # Global model instantiation to avoid reinitializing on each call
 print("Loading SAM model from local file...")
-global_sam_model = SAM(SAM_MODEL_PATH).to(DEVICE)
+global_sam_model = SAM(SAM_MODEL_PATH)
+if torch.cuda.is_available():
+    global_sam_model = global_sam_model.cuda()
 print("Loading OWLv2 models from local cache...")
-global_processor = Owlv2Processor.from_pretrained(HF_MODEL_NAME, local_files_only=True)
+
+# Initialize OWLv2 processor and model
+processor_result = Owlv2Processor.from_pretrained(HF_MODEL_NAME, local_files_only=True)
+global_processor: Owlv2ProcessorType
+global_image_processor: Owlv2ImageProcessor | None
+
+if isinstance(processor_result, tuple) and len(processor_result) == 2:
+    processor, image_processor = processor_result
+    if isinstance(image_processor, Owlv2ImageProcessor):
+        global_processor = cast(Owlv2ProcessorType, processor)
+        global_image_processor = image_processor
+    else:
+        global_processor = cast(Owlv2ProcessorType, processor_result)
+        global_image_processor = None
+else:
+    global_processor = cast(Owlv2ProcessorType, processor_result)
+    global_image_processor = None
+
 global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
-    HF_MODEL_NAME, local_files_only=True
-).to(DEVICE)
+    HF_MODEL_NAME,
+    local_files_only=True,
+    device_map="cuda" if torch.cuda.is_available() else "cpu",
+)
 print("All models loaded successfully!")
 
 
@@ -146,18 +173,52 @@ class ImageSegmenter:
         self, image: Image.Image, text_prompt: str
     ) -> list[list[float]]:
         """Get regions from semantic segmentation using OWLv2."""
-        processor = global_processor
-        model = global_owlv2_model
-
         texts = [[text_prompt]]
-        inputs = processor(text=texts, images=image, return_tensors="pt").to(DEVICE)
+
+        # Process inputs using the correct processor components
+        if isinstance(global_image_processor, Owlv2ImageProcessor):
+            image_inputs = cast(
+                dict[str, Any],
+                global_image_processor(images=image, return_tensors="pt"),
+            )
+            text_inputs = cast(
+                dict[str, Any], global_processor(text=texts, return_tensors="pt")
+            )
+            inputs = {**image_inputs, **text_inputs}
+        else:
+            inputs = cast(
+                dict[str, Any],
+                global_processor(text=texts, images=image, return_tensors="pt"),
+            )
+
+        # Move inputs to device if needed
+        if torch.cuda.is_available():
+            inputs = {
+                k: v.cuda() if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
+
+        # Forward pass
         with torch.no_grad():
-            outputs = model(**inputs)
+            outputs = global_owlv2_model(**inputs)
 
         target_sizes = [image.size[::-1]]  # (height, width)
-        results = processor.post_process_grounded_object_detection(
-            outputs=outputs, target_sizes=target_sizes, threshold=0.3
-        )
+
+        # Use the correct processor for post-processing
+        if isinstance(global_image_processor, Owlv2ImageProcessor):
+            results = cast(
+                list[dict[str, Any]],
+                global_processor.post_process_object_detection(
+                    outputs=outputs, target_sizes=target_sizes, threshold=0.3
+                ),
+            )
+        else:
+            results = cast(
+                list[dict[str, Any]],
+                global_processor.post_process_grounded_object_detection(
+                    outputs=outputs, target_sizes=target_sizes, threshold=0.3
+                ),
+            )
 
         regions = []
         if results and len(results) > 0:

@@ -43,11 +43,9 @@ RUN python3.13 -c "from ultralytics import SAM; model = SAM('sam2.1_l.pt'); prin
     find / -name "sam2.1_l.pt" -exec mv {} /models/sam/sam2.1_l.pt \; || echo "SAM model not found, assuming it's already in place"
 
 # Download OWLv2 model files using transformers directly
-RUN python3.13 -c "import torch; \
-    from transformers import Owlv2Processor, Owlv2ForObjectDetection; \
-    processor_result = Owlv2Processor.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface'); \
-    global_processor = processor_result[0] if isinstance(processor_result, tuple) else processor_result; \
-    global_owlv2_model = Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface')"
+RUN python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; \
+    Owlv2Processor.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface'); \
+    Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14', cache_dir='/models/huggingface')"
 
 # Set the working directory
 WORKDIR /

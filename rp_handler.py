@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 # Set device to CUDA explicitly
 DEVICE = torch.device("cuda")
 SAM_MODEL_PATH = "/models/sam/sam2.1_l.pt"
-HF_MODEL_NAME = "google/owlv2-large-patch14"
+HF_MODEL_NAME = "google/owlv2-large_patch14"
 print(f"Device: {DEVICE}, SAM Model Path: {SAM_MODEL_PATH}, HF Model: {HF_MODEL_NAME}")
 
 # Global model instantiation to avoid reinitializing on each call

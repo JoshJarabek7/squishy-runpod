@@ -41,7 +41,7 @@ COPY rp_handler.py /rp_handler.py
 # Download SAM model using Ultralytics and move it to /models/sam, then pre-download HuggingFace models
 RUN python3.13 -c "from ultralytics import SAM; model = SAM('sam2.1_l.pt'); print(f'Model downloaded to: {model.ckpt_path}')" && \
     mv sam2.1_l.pt /models/sam/sam2.1_l.pt && \
-    python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; Owlv2Processor.from_pretrained('google/owlv2-large-patch14'); Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14')"
+    python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; Owlv2Processor.from_pretrained('google/owlv2-large_patch14'); Owlv2ForObjectDetection.from_pretrained('google/owlv2-large_patch14')"
 
 # Set the working directory
 WORKDIR /

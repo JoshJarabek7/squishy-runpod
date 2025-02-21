@@ -38,10 +38,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy handler code
 COPY rp_handler.py /rp_handler.py
 
-# Download SAM model using Ultralytics and move it to /models/sam, then pre-download HuggingFace models
+# Download SAM model and move it to /models/sam
 RUN python3.13 -c "from ultralytics import SAM; model = SAM('sam2.1_l.pt'); print(f'Model downloaded to: {model.ckpt_path}')" && \
-    mv sam2.1_l.pt /models/sam/sam2.1_l.pt && \
-    python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; Owlv2Processor.from_pretrained('google/owlv2-large_patch14'); Owlv2ForObjectDetection.from_pretrained('google/owlv2-large_patch14')"
+    find / -name "sam2.1_l.pt" -exec mv {} /models/sam/sam2.1_l.pt \; || echo "SAM model not found, assuming it’s already in place"
+
+# Download OWLv2 model files explicitly using huggingface_hub
+RUN python3.13 -c "from huggingface_hub import hf_hub_download; \
+    hf_hub_download(repo_id='google/owlv2-large-patch14', filename='preprocessor_config.json', cache_dir='/models/huggingface'); \
+    hf_hub_download(repo_id='google/owlv2-large-patch14', filename='config.json', cache_dir='/models/huggingface'); \
+    hf_hub_download(repo_id='google/owlv2-large-patch14', filename='model.safetensors', cache_dir='/models/huggingface')" && \
+    python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; \
+    Owlv2Processor.from_pretrained('google/owlv2-large-patch14', local_files_only=True, cache_dir='/models/huggingface'); \
+    Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14', local_files_only=True, cache_dir='/models/huggingface')"
 
 # Set the working directory
 WORKDIR /

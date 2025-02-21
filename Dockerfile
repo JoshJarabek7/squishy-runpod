@@ -1,6 +1,8 @@
 FROM --platform=linux/amd64 nvidia/cuda:12.1.0-base-ubuntu22.04
 
 # Configure apt and install packages
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     software-properties-common \

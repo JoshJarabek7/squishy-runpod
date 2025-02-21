@@ -99,7 +99,7 @@ def verify_owlv2_path(model_dir: str) -> bool:
 
 def main():
     # Create base directories
-    base_dir = os.path.expanduser("~/squishy-models")
+    base_dir = "/models"
     sam_dir = os.path.join(base_dir, "sam")
     hf_dir = os.path.join(base_dir, "huggingface")
     

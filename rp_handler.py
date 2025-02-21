@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.13
 import runpod
 from PIL import Image
 from typing import AsyncGenerator, Any
@@ -15,22 +16,18 @@ from pydantic import BaseModel, Field, field_validator
 
 # Set device to CUDA explicitly
 DEVICE = torch.device("cuda")
-SAM_MODEL = "sam2.1_l.pt"
-print(f"Device: {DEVICE}, SAM Model: {SAM_MODEL}")
+SAM_MODEL_PATH = "/models/sam/sam2.1_l.pt"
+HF_MODEL_NAME = "google/owlv2-large-patch14"
+print(f"Device: {DEVICE}, SAM Model Path: {SAM_MODEL_PATH}, HF Model: {HF_MODEL_NAME}")
 
 # Global model instantiation to avoid reinitializing on each call
-print("Loading SAM model from cache...")
-global_sam_model = SAM(SAM_MODEL, model_dir="/models/sam").to(DEVICE)
-print("Loading OWL model from cache...")
-processor_result = Owlv2Processor.from_pretrained(
-    "google/owlv2-large-patch14", cache_dir="/models/huggingface/hub"
-)
-global_processor = (
-    processor_result[0] if isinstance(processor_result, tuple) else processor_result
-)
+print("Loading SAM model from local file...")
+global_sam_model = SAM(SAM_MODEL_PATH).to(DEVICE)
+print("Loading OWLv2 models from local cache...")
+global_processor = Owlv2Processor.from_pretrained(HF_MODEL_NAME, local_files_only=True)
 global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
-    "google/owlv2-large-patch14", cache_dir="/models/huggingface/hub"
-).to(DEVICE)  # type: ignore
+    HF_MODEL_NAME, local_files_only=True
+).to(DEVICE)
 print("All models loaded successfully!")
 
 
@@ -54,7 +51,6 @@ class SegmentationInput(BaseModel):
     @classmethod
     def validate_image(cls, v: str) -> str:
         try:
-            # Try to decode and open the image to validate it
             image_data = base64.b64decode(v)
             Image.open(BytesIO(image_data))
             return v
@@ -111,12 +107,10 @@ class SegmentationOutput(BaseModel):
 
         # If too large, compress with JPEG
         if size > max_size_bytes and format == "PNG":
-            # Convert to RGBA on white background
             if image.mode == "RGBA":
                 background = Image.new("RGB", image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[3])
                 image = background
-
             format = "JPEG"
             buffer = BytesIO()
             image.save(buffer, format=format, quality=quality)
@@ -175,11 +169,11 @@ class ImageSegmenter:
     def _create_transparent_mask(
         result: np.ndarray, original_image: Image.Image, bbox: list[int] | None = None
     ) -> Image.Image | None:
-        """Create a transparent image containing the segmented object. Returns None if the result would be essentially empty."""
+        """Create a transparent image containing the segmented object."""
         image_array = np.array(original_image)
         mask = result > 0.5 if result.ndim == 2 else np.max(result, axis=0) > 0.5
 
-        # Use connected component analysis but preserve significant components
+        # Use connected component analysis to preserve significant components
         mask_uint8 = np.uint8(mask)
         mask_contiguous = np.ascontiguousarray(mask_uint8)
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
@@ -187,29 +181,23 @@ class ImageSegmenter:
         )
 
         if num_labels > 1:
-            # Calculate total mask area (excluding background)
             total_area = np.sum(stats[1:, cv2.CC_STAT_AREA])
-
-            # Find components that are at least 5% of the total area or 1000 pixels
             significant_areas = stats[1:, cv2.CC_STAT_AREA]
             area_threshold = max(int(0.05 * total_area), 1000)
             significant_labels = np.where(significant_areas >= area_threshold)[0] + 1
 
             if len(significant_labels) > 0:
-                # Create a new mask with all significant components
                 new_mask = np.isin(labels, significant_labels)
                 mask = new_mask
-            # If no significant components found, keep the largest one if it's big enough
             else:
                 largest_area = np.max(stats[1:, cv2.CC_STAT_AREA])
-                if largest_area < 500:  # Minimum size threshold
+                if largest_area < 500:
                     return None
                 largest_label = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1
                 mask = labels == largest_label
 
-        # Check if mask is too sparse
         non_zero_ratio = np.count_nonzero(mask) / mask.size
-        if non_zero_ratio < 0.01:  # Less than 1% of the area is non-zero
+        if non_zero_ratio < 0.01:
             return None
 
         alpha = np.where(mask, 255, 0).astype(np.uint8)
@@ -220,7 +208,6 @@ class ImageSegmenter:
 
         image = Image.fromarray(rgba, "RGBA")
 
-        # Crop to bounding box or content bounds
         if bbox:
             x1, y1, x2, y2 = bbox
             image = image.crop((x1, y1, x2, y2))
@@ -228,19 +215,16 @@ class ImageSegmenter:
             rows, cols = np.any(alpha, axis=1), np.any(alpha, axis=0)
             ymin, ymax = np.where(rows)[0][[0, -1]]
             xmin, xmax = np.where(cols)[0][[0, -1]]
-            padding = 5  # Increased padding
+            padding = 5
             ymin, ymax = max(0, ymin - padding), min(alpha.shape[0], ymax + padding)
             xmin, xmax = max(0, xmin - padding), min(alpha.shape[1], xmax + padding)
 
-            # Check if the cropped area would be too small
-            if (ymax - ymin) < 20 or (xmax - xmin) < 20:  # Minimum dimension threshold
+            if (ymax - ymin) < 20 or (xmax - xmin) < 20:
                 return None
-
             image = image.crop((xmin, ymin, xmax, ymax))
 
-        # Final size check on the cropped image
         w, h = image.size
-        if w < 20 or h < 20 or w * h < 400:  # Minimum area of 400 pixels
+        if w < 20 or h < 20 or w * h < 400:
             return None
 
         return image
@@ -266,10 +250,8 @@ class ImageSegmenter:
         segmented_images = []
 
         if input_data.mode == SegmentationMode.SEMANTIC and input_data.text_prompt:
-            # Get all regions from OWLv2 at once
             regions = self._get_semantic_regions(pil_image, input_data.text_prompt)
             if regions:
-                # Batch process all bounding boxes with SAM
                 results = self.sam_model.predict(pil_image, bboxes=regions)
                 masks_to_process = []
                 bboxes_to_process = []
@@ -295,7 +277,6 @@ class ImageSegmenter:
                             masks_to_process.append(m)
                             bboxes_to_process.append([int(x) for x in region])
 
-                # Parallel processing of masks
                 with ThreadPoolExecutor() as executor:
                     futures = [
                         executor.submit(self._process_mask, mask, pil_image, bbox)
@@ -303,7 +284,6 @@ class ImageSegmenter:
                     ]
                     segmented_images = [f.result() for f in futures if f.result()]
         else:
-            # Automatic segmentation on the whole image
             results = self.sam_model.predict(pil_image)
             masks_to_process = []
 
@@ -325,7 +305,6 @@ class ImageSegmenter:
                 elif mask_data.ndim == 3:
                     masks_to_process.extend(m for m in mask_data)
 
-            # Parallel processing of masks
             with ThreadPoolExecutor() as executor:
                 futures = [
                     executor.submit(self._process_mask, mask, pil_image)
@@ -366,15 +345,11 @@ async def process_segments(
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Process segments and yield them one by one."""
     try:
-        # Get PIL image from base64
         image = input_data.get_pil_image()
 
-        # Get segments based on mode
         if input_data.mode == SegmentationMode.SEMANTIC and input_data.text_prompt:
-            # Get all regions from OWLv2 at once
             regions = segmenter._get_semantic_regions(image, input_data.text_prompt)
             if regions:
-                # Process each region
                 results = segmenter.sam_model.predict(image, bboxes=regions)
                 for result, region in zip(results, regions):
                     if (
@@ -384,17 +359,14 @@ async def process_segments(
                     ):
                         continue
 
-                    # Process each mask
                     mask_data = convert_to_numpy(result.masks.data)
                     mask_data = mask_data.squeeze()
 
-                    # Handle both 2D and 3D masks
                     if mask_data.ndim == 2:
                         masks = [mask_data]
                     else:
                         masks = [m for m in mask_data]
 
-                    # Process each mask
                     for mask in masks:
                         transparent_image = segmenter._create_transparent_mask(
                             mask, image, [int(x) for x in region]
@@ -414,7 +386,6 @@ async def process_segments(
                                 )
                                 continue
         else:
-            # Automatic segmentation
             results = segmenter.sam_model.predict(image)
             for result in results:
                 if (
@@ -424,17 +395,14 @@ async def process_segments(
                 ):
                     continue
 
-                # Process each mask
                 mask_data = convert_to_numpy(result.masks.data)
                 mask_data = mask_data.squeeze()
 
-                # Handle both 2D and 3D masks
                 if mask_data.ndim == 2:
                     masks = [mask_data]
                 else:
                     masks = [m for m in mask_data]
 
-                # Process each mask
                 for mask in masks:
                     transparent_image = segmenter._create_transparent_mask(mask, image)
                     if transparent_image:
@@ -452,7 +420,6 @@ async def process_segments(
                             )
                             continue
 
-        # Signal completion
         yield {"status": "completed"}
 
     except Exception as e:
@@ -462,13 +429,9 @@ async def process_segments(
 async def handler(event) -> AsyncGenerator[dict[str, Any], None]:
     """RunPod handler function that returns an async generator of segmentation results."""
     try:
-        # Parse and validate input
         input_data = SegmentationInput(**event["input"])
-
-        # Return the async generator directly
         async for result in process_segments(input_data):
             yield result
-
     except Exception as e:
         yield {"status": "error", "error": str(e)}
 

@@ -19,14 +19,19 @@ SAM_MODEL = "sam2.1_l.pt"
 print(f"Device: {DEVICE}, SAM Model: {SAM_MODEL}")
 
 # Global model instantiation to avoid reinitializing on each call
-global_sam_model = SAM(SAM_MODEL).to(DEVICE)
-processor_result = Owlv2Processor.from_pretrained("google/owlv2-large-patch14")
+print("Loading SAM model from cache...")
+global_sam_model = SAM(SAM_MODEL, model_dir="/models/sam").to(DEVICE)
+print("Loading OWL model from cache...")
+processor_result = Owlv2Processor.from_pretrained(
+    "google/owlv2-large-patch14", cache_dir="/models/huggingface/hub"
+)
 global_processor = (
     processor_result[0] if isinstance(processor_result, tuple) else processor_result
 )
 global_owlv2_model = Owlv2ForObjectDetection.from_pretrained(
-    "google/owlv2-large-patch14"
+    "google/owlv2-large-patch14", cache_dir="/models/huggingface/hub"
 ).to(DEVICE)  # type: ignore
+print("All models loaded successfully!")
 
 
 class SegmentationMode(str, Enum):

@@ -19,15 +19,18 @@ RUN apt-get update && \
 
 RUN ldconfig /usr/local/cuda-12.6/compat/
 
-# Create local directory for HuggingFace cache
-RUN mkdir -p /root/.cache/huggingface
+# Create persistent directories for model storage
+RUN mkdir -p /models/sam \
+    /models/huggingface \
+    /root/.cache/huggingface
 
-# Set up environment variables for HuggingFace cache using local directory
+# Set up environment variables for model and cache locations
 ENV BASE_PATH="/root/.cache" \
-    HF_DATASETS_CACHE="/root/.cache/huggingface/datasets" \
-    HUGGINGFACE_HUB_CACHE="/root/.cache/huggingface/hub" \
-    HF_HOME="/root/.cache/huggingface/hub" \
-    HF_HUB_ENABLE_HF_TRANSFER=0
+    HF_DATASETS_CACHE="/models/huggingface/datasets" \
+    HUGGINGFACE_HUB_CACHE="/models/huggingface/hub" \
+    HF_HOME="/models/huggingface" \
+    HF_HUB_ENABLE_HF_TRANSFER=0 \
+    ULTRALYTICS_DIR="/models/sam"
 
 # Install Python dependencies with caching
 COPY requirements.txt /requirements.txt
@@ -37,6 +40,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Copy handler code
 COPY rp_handler.py /rp_handler.py
+
+# Pre-download models during build
+RUN python3.13 -c "from ultralytics import SAM; SAM('sam2.1_l.pt')" && \
+    python3.13 -c "from transformers import Owlv2Processor, Owlv2ForObjectDetection; Owlv2Processor.from_pretrained('google/owlv2-large-patch14'); Owlv2ForObjectDetection.from_pretrained('google/owlv2-large-patch14')"
 
 # Set the working directory
 WORKDIR /

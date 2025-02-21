@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 nvidia/cuda:12.1.0-base-ubuntu22.04
+FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04
 
 # Configure apt and install packages
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,13 +12,12 @@ RUN apt-get update && \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 \
+    python3.13-full \
+    python3.13-dev \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ldconfig /usr/local/cuda-12.1/compat/
+RUN ldconfig /usr/local/cuda-12.6/compat/
 
 # Create local directory for HuggingFace cache
 RUN mkdir -p /root/.cache/huggingface
@@ -33,8 +32,8 @@ ENV BASE_PATH="/root/.cache" \
 # Install Python dependencies with caching
 COPY requirements.txt /requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3.11 -m pip install --upgrade pip && \
-    python3.11 -m pip install --upgrade -r /requirements.txt --no-cache-dir
+    python3.13 -m pip install --upgrade pip && \
+    python3.13 -m pip install --upgrade -r /requirements.txt --no-cache-dir
 
 # Copy handler code
 COPY rp_handler.py /rp_handler.py
@@ -43,4 +42,4 @@ COPY rp_handler.py /rp_handler.py
 WORKDIR /
 
 # Start the handler
-CMD ["python3.11", "-u", "/rp_handler.py"]
+CMD ["python3.13", "-u", "/rp_handler.py"]

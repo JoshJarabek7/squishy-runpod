@@ -378,7 +378,7 @@ class ImageSegmenter:
                     cropped_img = pil_image.crop((region_int[0], region_int[1], region_int[2], region_int[3]))
                     results = self.sam_model.predict(cropped_img)
                     
-                    # Find the largest mask from all results
+                    # Find the largest mask for this cropped region
                     largest_mask = None
                     largest_area = 0
                     
@@ -408,11 +408,10 @@ class ImageSegmenter:
                         if processed_mask:
                             segmented_images.append(processed_mask)
                             
-        else:
+        else:  # Automatic mode
             results = self.sam_model.predict(pil_image)
-            largest_mask = None
-            largest_area = 0
             
+            # Process all masks from SAM
             for result in results:
                 if (not hasattr(result, "masks") or not result.masks or not hasattr(result.masks, "data")):
                     continue
@@ -421,21 +420,14 @@ class ImageSegmenter:
                 mask_data = np.squeeze(mask_data)
                 
                 if mask_data.ndim == 2:
-                    area = np.sum(mask_data > 0.5)
-                    if area > largest_area:
-                        largest_area = area
-                        largest_mask = mask_data
+                    processed_mask = self._process_mask(mask_data, pil_image)
+                    if processed_mask:
+                        segmented_images.append(processed_mask)
                 elif mask_data.ndim == 3:
                     for m in mask_data:
-                        area = np.sum(m > 0.5)
-                        if area > largest_area:
-                            largest_area = area
-                            largest_mask = m
-            
-            if largest_mask is not None:
-                processed_mask = self._process_mask(largest_mask, pil_image)
-                if processed_mask:
-                    segmented_images.append(processed_mask)
+                        processed_mask = self._process_mask(m, pil_image)
+                        if processed_mask:
+                            segmented_images.append(processed_mask)
 
         return segmented_images
 

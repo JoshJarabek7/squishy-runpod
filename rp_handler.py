@@ -74,8 +74,6 @@ async def process_segments(
         else:
             # Automatic mode - process the full image
             results = segmenter.sam_model.predict(image)
-            largest_mask = None
-            largest_area = 0
             
             for result in results:
                 if (not hasattr(result, "masks") or not result.masks or not hasattr(result.masks, "data")):
@@ -84,29 +82,30 @@ async def process_segments(
                 mask_data = (result.masks.data.cpu().numpy() if isinstance(result.masks.data, torch.Tensor) else result.masks.data)
                 mask_data = np.squeeze(mask_data)
                 
+                # Process all masks
                 if mask_data.ndim == 2:
-                    area = np.sum(mask_data > 0.5)
-                    if area > largest_area:
-                        largest_area = area
-                        largest_mask = mask_data
+                    transparent_image = segmenter._create_transparent_mask(mask_data, image)
+                    if transparent_image:
+                        try:
+                            output = SegmentationOutput.from_pil_image(transparent_image)
+                            yield {
+                                "status": "processing",
+                                "output": output.model_dump(),
+                            }
+                        except ValueError as e:
+                            print(f"Warning: Skipping segment due to size constraints: {e}")
                 elif mask_data.ndim == 3:
                     for m in mask_data:
-                        area = np.sum(m > 0.5)
-                        if area > largest_area:
-                            largest_area = area
-                            largest_mask = m
-            
-            if largest_mask is not None:
-                transparent_image = segmenter._create_transparent_mask(largest_mask, image)
-                if transparent_image:
-                    try:
-                        output = SegmentationOutput.from_pil_image(transparent_image)
-                        yield {
-                            "status": "processing",
-                            "output": output.model_dump(),
-                        }
-                    except ValueError as e:
-                        print(f"Warning: Skipping segment due to size constraints: {e}")
+                        transparent_image = segmenter._create_transparent_mask(m, image)
+                        if transparent_image:
+                            try:
+                                output = SegmentationOutput.from_pil_image(transparent_image)
+                                yield {
+                                    "status": "processing",
+                                    "output": output.model_dump(),
+                                }
+                            except ValueError as e:
+                                print(f"Warning: Skipping segment due to size constraints: {e}")
 
         yield {"status": "completed"}
 

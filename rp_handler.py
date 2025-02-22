@@ -259,14 +259,14 @@ class ImageSegmenter:
             results = cast(
                 list[dict[str, Any]],
                 global_processor.post_process_object_detection(
-                    outputs=outputs, target_sizes=target_sizes, threshold=0.3
+                    outputs=outputs, target_sizes=target_sizes, threshold=0.4
                 ),
             )
         else:
             results = cast(
                 list[dict[str, Any]],
                 global_processor.post_process_grounded_object_detection(
-                    outputs=outputs, target_sizes=target_sizes, threshold=0.3
+                    outputs=outputs, target_sizes=target_sizes, threshold=0.4
                 ),
             )
 

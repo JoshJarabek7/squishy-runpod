@@ -363,37 +363,26 @@ class ImageSegmenter:
         if input_data.mode == SegmentationMode.SEMANTIC and input_data.text_prompt:
             regions = self._get_semantic_regions(pil_image, input_data.text_prompt)
             if regions:
-                results = self.sam_model.predict(pil_image, bboxes=regions)
-                masks_to_process = []
-                bboxes_to_process = []
-
-                for result, region in zip(results, regions):
-                    if (
-                        not hasattr(result, "masks")
-                        or not result.masks
-                        or not hasattr(result.masks, "data")
-                    ):
-                        continue
-                    mask_data = (
-                        result.masks.data.cpu().numpy()
-                        if isinstance(result.masks.data, torch.Tensor)
-                        else result.masks.data
-                    )
-                    mask_data = np.squeeze(mask_data)
-                    if mask_data.ndim == 2:
-                        masks_to_process.append(mask_data)
-                        bboxes_to_process.append([int(x) for x in region])
-                    elif mask_data.ndim == 3:
-                        for m in mask_data:
-                            masks_to_process.append(m)
-                            bboxes_to_process.append([int(x) for x in region])
-
-                with ThreadPoolExecutor() as executor:
-                    futures = [
-                        executor.submit(self._process_mask, mask, pil_image, bbox)
-                        for mask, bbox in zip(masks_to_process, bboxes_to_process)
-                    ]
-                    segmented_images = [f.result() for f in futures if f.result()]
+                aggregated_segments = []
+                for region in regions:
+                    region_int = [int(x) for x in region]
+                    cropped_img = pil_image.crop((region_int[0], region_int[1], region_int[2], region_int[3]))
+                    results = self.sam_model.predict(cropped_img)
+                    with ThreadPoolExecutor() as executor:
+                        futures = []
+                        for result in results:
+                            if (not hasattr(result, "masks") or not result.masks or not hasattr(result.masks, "data")):
+                                continue
+                            mask_data = (result.masks.data.cpu().numpy() if isinstance(result.masks.data, torch.Tensor) else result.masks.data)
+                            mask_data = np.squeeze(mask_data)
+                            if mask_data.ndim == 2:
+                                futures.append(executor.submit(self._process_mask, mask_data, cropped_img, None))
+                            elif mask_data.ndim == 3:
+                                for m in mask_data:
+                                    futures.append(executor.submit(self._process_mask, m, cropped_img, None))
+                        region_segments = [f.result() for f in futures if f.result()]
+                        aggregated_segments.extend(region_segments)
+                segmented_images = aggregated_segments
         else:
             results = self.sam_model.predict(pil_image)
             masks_to_process = []

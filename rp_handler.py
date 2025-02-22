@@ -465,42 +465,50 @@ async def process_segments(
         if input_data.mode == SegmentationMode.SEMANTIC and input_data.text_prompt:
             regions = segmenter._get_semantic_regions(image, input_data.text_prompt)
             if regions:
-                results = segmenter.sam_model.predict(image, bboxes=regions)
-                for result, region in zip(results, regions):
-                    if (
-                        not hasattr(result, "masks")
-                        or not result.masks
-                        or not hasattr(result.masks, "data")
-                    ):
-                        continue
+                for region in regions:
+                    # Convert region coordinates to integers and crop the image
+                    region_int = [int(x) for x in region]
+                    cropped_img = image.crop((region_int[0], region_int[1], region_int[2], region_int[3]))
+                    
+                    # Run SAM on the cropped image
+                    results = segmenter.sam_model.predict(cropped_img)
+                    
+                    for result in results:
+                        if (
+                            not hasattr(result, "masks")
+                            or not result.masks
+                            or not hasattr(result.masks, "data")
+                        ):
+                            continue
 
-                    mask_data = convert_to_numpy(result.masks.data)
-                    mask_data = mask_data.squeeze()
+                        mask_data = convert_to_numpy(result.masks.data)
+                        mask_data = mask_data.squeeze()
 
-                    if mask_data.ndim == 2:
-                        masks = [mask_data]
-                    else:
-                        masks = [m for m in mask_data]
+                        if mask_data.ndim == 2:
+                            masks = [mask_data]
+                        else:
+                            masks = [m for m in mask_data]
 
-                    for mask in masks:
-                        transparent_image = segmenter._create_transparent_mask(
-                            mask, image, [int(x) for x in region]
-                        )
-                        if transparent_image:
-                            try:
-                                output = SegmentationOutput.from_pil_image(
-                                    transparent_image
-                                )
-                                yield {
-                                    "status": "processing",
-                                    "output": output.model_dump(),
-                                }
-                            except ValueError as e:
-                                print(
-                                    f"Warning: Skipping segment due to size constraints: {e}"
-                                )
-                                continue
+                        for mask in masks:
+                            transparent_image = segmenter._create_transparent_mask(
+                                mask, cropped_img
+                            )
+                            if transparent_image:
+                                try:
+                                    output = SegmentationOutput.from_pil_image(
+                                        transparent_image
+                                    )
+                                    yield {
+                                        "status": "processing",
+                                        "output": output.model_dump(),
+                                    }
+                                except ValueError as e:
+                                    print(
+                                        f"Warning: Skipping segment due to size constraints: {e}"
+                                    )
+                                    continue
         else:
+            # Automatic mode - process the full image
             results = segmenter.sam_model.predict(image)
             for result in results:
                 if (

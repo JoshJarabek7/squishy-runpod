@@ -45,6 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy handler code and download script
 COPY rp_handler.py /rp_handler.py
 COPY download_models.py /download_models.py
+COPY utils.py /utils.py
 
 # Make the download script executable and run it with retries
 RUN chmod +x /download_models.py && \

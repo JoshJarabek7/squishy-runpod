@@ -1,7 +1,8 @@
+#!/usr/bin/env python3.13
 import os
 from pathlib import Path
 from PIL import Image
-from rp_handler import segment_image
+from utils import segment_image, initialize_models
 import base64
 from io import BytesIO
 
@@ -43,65 +44,36 @@ def main():
     ensure_dir(input_dir)
     ensure_dir(output_dir)
 
-    # Image configurations
-    image_configs = {
-        "multi_focus.jpg": {"semantic": ["book"], "output_prefix": "multi_focus"},
-        "single_focus.jpg": {
-            "semantic": ["hair", "sunglasses"],
-            "output_prefix": "single_focus",
-        },
-    }
+    # Image configuration
+    image_file = "goats.jpg"
+    input_path = os.path.join(input_dir, image_file)
 
-    # Check if images exist
-    missing_images = []
-    for image_file in image_configs:
-        if not os.path.exists(os.path.join(input_dir, image_file)):
-            missing_images.append(image_file)
-
-    if missing_images:
-        print("\nWarning: The following images are missing from the input directory:")
-        for img in missing_images:
-            print(f"- {img}")
-        print(
-            "\nPlease add these images to the 'input_images' directory before running the script."
-        )
+    # Check if image exists
+    if not os.path.exists(input_path):
+        print(f"\nError: {image_file} not found in the input directory.")
+        print(f"Please add {image_file} to the 'input_images' directory before running the script.")
         return
 
-    # Process each image
-    for image_file, config in image_configs.items():
-        input_path = os.path.join(input_dir, image_file)
-        print(f"\nProcessing {image_file}...")
+    print(f"\nProcessing {image_file}...")
 
-        try:
-            image = Image.open(input_path).convert("RGB")
-            image_base64 = image_to_base64(image)
+    try:
+        # Initialize models
+        initialize_models()
+        
+        # Load and process image
+        image = Image.open(input_path).convert("RGB")
+        image_base64 = image_to_base64(image)
 
-            # 1. Automatic segmentation
-            print("Running automatic segmentation...")
-            auto_results = segment_image(image_base64, automatic=True)
-            if auto_results:
-                save_segmented_images(
-                    auto_results, output_dir, f"{config['output_prefix']}_auto"
-                )
-            else:
-                print("No segments found in automatic mode")
+        # Run semantic segmentation for "goat"
+        print("Running semantic segmentation for 'goat'...")
+        semantic_results = segment_image(image_base64, text_prompt="goat")
+        if semantic_results:
+            save_segmented_images(semantic_results, output_dir, "goats_semantic")
+        else:
+            print("No segments found for keyword 'goat'")
 
-            # 2. Semantic segmentation for each keyword
-            for keyword in config["semantic"]:
-                print(f"Running semantic segmentation for '{keyword}'...")
-                semantic_results = segment_image(image_base64, text_prompt=keyword)
-                if semantic_results:
-                    save_segmented_images(
-                        semantic_results,
-                        output_dir,
-                        f"{config['output_prefix']}_{keyword}",
-                    )
-                else:
-                    print(f"No segments found for keyword '{keyword}'")
-
-        except Exception as e:
-            print(f"Error processing {image_file}: {str(e)}")
-            continue
+    except Exception as e:
+        print(f"Error processing {image_file}: {str(e)}")
 
 
 if __name__ == "__main__":

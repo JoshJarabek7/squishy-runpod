@@ -32,3 +32,5 @@ TODO.md
 runpod_docs.txt
 input_images
 test_input.json
+test_input_semantic.json
+test_input_automatic.json

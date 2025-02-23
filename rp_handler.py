@@ -22,10 +22,16 @@ async def process_segments(
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Process segments and yield them one by one."""
     try:
+        print(f"\nProcessing request with mode: {input_data.mode}")
+        print(f"Text prompt: {input_data.text_prompt}")
+        print(f"Automatic flag: {input_data.automatic}")
+        
         image = input_data.get_pil_image()
 
         if input_data.mode == "semantic" and input_data.text_prompt:
+            print("\nRunning in semantic mode...")
             regions = segmenter._get_semantic_regions(image, input_data.text_prompt)
+            print(f"Found {len(regions) if regions else 0} regions from OWLv2")
             if regions:
                 for region in regions:
                     # Convert region coordinates to integers and crop the image
@@ -72,6 +78,7 @@ async def process_segments(
                             except ValueError as e:
                                 print(f"Warning: Skipping segment due to size constraints: {e}")
         else:
+            print("\nRunning in automatic mode...")
             # Automatic mode - process the full image
             results = segmenter.sam_model.predict(image)
             
@@ -110,16 +117,19 @@ async def process_segments(
         yield {"status": "completed"}
 
     except Exception as e:
+        print(f"\nError in process_segments: {str(e)}")
         yield {"status": "error", "error": str(e)}
 
 
 async def handler(event) -> AsyncGenerator[dict[str, Any], None]:
     """RunPod handler function that returns an async generator of segmentation results."""
     try:
+        print("\nReceived event input:", event["input"])
         input_data = SegmentationInput(**event["input"])
         async for result in process_segments(input_data):
             yield result
     except Exception as e:
+        print(f"\nError in handler: {str(e)}")
         yield {"status": "error", "error": str(e)}
 
 
